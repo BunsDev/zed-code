@@ -6638,6 +6638,7 @@ dependencies = [
  "log",
  "nucleo",
  "util",
+ "util_macros",
 ]
 
 [[package]]
