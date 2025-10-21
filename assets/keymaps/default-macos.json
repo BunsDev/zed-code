@@ -1398,6 +1398,13 @@
     }
   },
   {
+    "context": "Zeta2Inspector > Editor",
+    "bindings": {
+      "ctrl-h": "dev::Zeta2InspectorPrevious",
+      "ctrl-l": "dev::Zeta2InspectorNext"
+    }
+  },
+  {
     "context": "Zeta2Feedback > Editor",
     "bindings": {
       "enter": "editor::Newline",

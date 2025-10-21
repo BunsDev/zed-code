@@ -12,8 +12,9 @@ use edit_prediction_context::{
     EditPredictionExcerptOptions, EditPredictionScoreOptions, SyntaxIndex, SyntaxIndexState,
 };
 use feature_flags::{FeatureFlag, FeatureFlagAppExt as _};
-use futures::AsyncReadExt as _;
 use futures::channel::{mpsc, oneshot};
+use futures::future::{BoxFuture, Shared};
+use futures::{AsyncReadExt as _, FutureExt};
 use gpui::http_client::{AsyncBody, Method};
 use gpui::{
     App, Entity, EntityId, Global, SemanticVersion, SharedString, Subscription, Task, WeakEntity,
@@ -89,7 +90,7 @@ pub struct Zeta {
     projects: HashMap<EntityId, ZetaProject>,
     options: ZetaOptions,
     update_required: bool,
-    debug_tx: Option<mpsc::UnboundedSender<PredictionDebugInfo>>,
+    observe_tx: Option<mpsc::UnboundedSender<ObservedPredictionRequest>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -101,13 +102,15 @@ pub struct ZetaOptions {
     pub file_indexing_parallelism: usize,
 }
 
-pub struct PredictionDebugInfo {
-    pub request: predict_edits_v3::PredictEditsRequest,
+#[derive(Clone)]
+pub struct ObservedPredictionRequest {
+    pub full_request: predict_edits_v3::PredictEditsRequest,
     pub retrieval_time: TimeDelta,
     pub buffer: WeakEntity<Buffer>,
     pub position: language::Anchor,
     pub local_prompt: Result<String, String>,
-    pub response_rx: oneshot::Receiver<Result<predict_edits_v3::PredictEditsResponse, String>>,
+    pub response:
+        Shared<BoxFuture<'static, Result<predict_edits_v3::PredictEditsResponse, String>>>,
 }
 
 pub type RequestDebugInfo = predict_edits_v3::DebugInfo;
@@ -224,14 +227,14 @@ impl Zeta {
                 },
             ),
             update_required: false,
-            debug_tx: None,
+            observe_tx: None,
         }
     }
 
-    pub fn debug_info(&mut self) -> mpsc::UnboundedReceiver<PredictionDebugInfo> {
-        let (debug_watch_tx, debug_watch_rx) = mpsc::unbounded();
-        self.debug_tx = Some(debug_watch_tx);
-        debug_watch_rx
+    pub fn observe_requests(&mut self) -> mpsc::UnboundedReceiver<ObservedPredictionRequest> {
+        let (tx, rx) = mpsc::unbounded();
+        self.observe_tx = Some(tx);
+        rx
     }
 
     pub fn options(&self) -> &ZetaOptions {
@@ -518,7 +521,7 @@ impl Zeta {
             .worktrees(cx)
             .map(|worktree| worktree.read(cx).snapshot())
             .collect::<Vec<_>>();
-        let debug_tx = self.debug_tx.clone();
+        let observe_tx = self.observe_tx.clone();
 
         let events = project_state
             .map(|state| {
@@ -616,28 +619,35 @@ impl Zeta {
                     diagnostic_groups,
                     diagnostic_groups_truncated,
                     None,
-                    debug_tx.is_some(),
+                    observe_tx.is_some(),
                     &worktree_snapshots,
                     index_state.as_deref(),
                     Some(options.max_prompt_bytes),
                     options.prompt_format,
                 );
 
-                let debug_response_tx = if let Some(debug_tx) = &debug_tx {
+                let observe_response_tx = if let Some(observe_tx) = &observe_tx {
                     let (response_tx, response_rx) = oneshot::channel();
 
                     let local_prompt = PlannedPrompt::populate(&request)
                         .and_then(|p| p.to_prompt_string().map(|p| p.0))
                         .map_err(|err| err.to_string());
 
-                    debug_tx
-                        .unbounded_send(PredictionDebugInfo {
-                            request: request.clone(),
+                    observe_tx
+                        .unbounded_send(ObservedPredictionRequest {
+                            full_request: request.clone(),
                             retrieval_time,
                             buffer: buffer.downgrade(),
                             local_prompt,
                             position,
-                            response_rx,
+                            response: async move {
+                                let resp = response_rx
+                                    .await
+                                    .map_err(|_: oneshot::Canceled| "Canceled".to_string());
+                                Ok(resp??)
+                            }
+                            .boxed()
+                            .shared(),
                         })
                         .ok();
                     Some(response_tx)
@@ -646,8 +656,8 @@ impl Zeta {
                 };
 
                 if cfg!(debug_assertions) && std::env::var("ZED_ZETA2_SKIP_REQUEST").is_ok() {
-                    if let Some(debug_response_tx) = debug_response_tx {
-                        debug_response_tx
+                    if let Some(observe_response_tx) = observe_response_tx {
+                        observe_response_tx
                             .send(Err("Request skipped".to_string()))
                             .ok();
                     }
@@ -657,7 +667,7 @@ impl Zeta {
                 let response =
                     Self::send_prediction_request(client, llm_token, app_version, request).await;
 
-                if let Some(debug_response_tx) = debug_response_tx {
+                if let Some(debug_response_tx) = observe_response_tx {
                     debug_response_tx
                         .send(
                             response
