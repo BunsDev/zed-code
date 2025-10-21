@@ -1,6 +1,6 @@
 use std::{
-    cmp::Reverse, collections::hash_map::Entry, ops::Add as _, path::PathBuf, str::FromStr,
-    sync::Arc, time::Duration,
+    cmp::Reverse, collections::hash_map::Entry, fmt::Debug, ops::Add as _, path::PathBuf,
+    str::FromStr, sync::Arc, time::Duration,
 };
 
 use client::{Client, UserStore};
@@ -400,6 +400,14 @@ impl Zeta2Inspector {
                                     buffer.set_language(language.clone(), cx);
                                 }
                                 buffer.file_updated(excerpt_file, cx);
+                                #[cfg(debug_assertions)]
+                                buffer.debug(
+                                    &language::Point::new(
+                                        request.full_request.cursor_point.line.0,
+                                        request.full_request.cursor_point.column,
+                                    ),
+                                    CursorMarker,
+                                );
                                 buffer
                             });
 
@@ -1209,6 +1217,16 @@ impl language::File for ExcerptMetadataFile {
 
     fn is_private(&self) -> bool {
         false
+    }
+}
+
+#[cfg(debug_assertions)]
+struct CursorMarker;
+
+#[cfg(debug_assertions)]
+impl Debug for CursorMarker {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Cursor")
     }
 }
 
