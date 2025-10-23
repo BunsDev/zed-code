@@ -41,8 +41,9 @@ where
         }
 
         // Search for the best place to add the new leaf based on heuristics.
-        let mut max_intersecting_ordering = 0;
         let mut index = self.root.unwrap();
+        let mut max_intersecting_ordering = self.find_max_ordering(index, &new_bounds, 0);
+
         while let Node::Internal {
             left,
             right,
@@ -63,15 +64,7 @@ where
             let right_cost = new_bounds
                 .union(self.nodes[right].bounds())
                 .half_perimeter();
-            if left_cost < right_cost {
-                max_intersecting_ordering =
-                    self.find_max_ordering(right, &new_bounds, max_intersecting_ordering);
-                index = left;
-            } else {
-                max_intersecting_ordering =
-                    self.find_max_ordering(left, &new_bounds, max_intersecting_ordering);
-                index = right;
-            }
+            index = if left_cost < right_cost { left } else { right };
         }
 
         // We've found a leaf ('index' now refers to a leaf node).
@@ -201,14 +194,14 @@ where
     U: Clone + Debug + Default + PartialEq,
 {
     Leaf {
-        bounds: Bounds<U>,
         order: u32,
+        bounds: Bounds<U>,
     },
     Internal {
+        max_order: u32,
+        bounds: Bounds<U>,
         left: usize,
         right: usize,
-        bounds: Bounds<U>,
-        max_order: u32,
     },
 }
 
@@ -225,13 +218,13 @@ where
 
     fn max_ordering(&self) -> u32 {
         match self {
-            Node::Leaf {
+            &Node::Leaf {
                 order: ordering, ..
-            } => *ordering,
-            Node::Internal {
-                max_order: max_ordering,
+            }
+            | &Node::Internal {
+                max_order: ordering,
                 ..
-            } => *max_ordering,
+            } => ordering,
         }
     }
 }

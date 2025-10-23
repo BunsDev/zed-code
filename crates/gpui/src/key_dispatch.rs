@@ -447,7 +447,7 @@ impl DispatchTree {
     fn bindings_for_input(
         &self,
         input: &[Keystroke],
-        dispatch_path: &SmallVec<[DispatchNodeId; 32]>,
+        dispatch_path: &[DispatchNodeId],
     ) -> (SmallVec<[KeyBinding; 1]>, bool, Vec<KeyContext>) {
         let context_stack: Vec<KeyContext> = dispatch_path
             .iter()
@@ -472,7 +472,7 @@ impl DispatchTree {
         &mut self,
         mut input: SmallVec<[Keystroke; 1]>,
         keystroke: Keystroke,
-        dispatch_path: &SmallVec<[DispatchNodeId; 32]>,
+        dispatch_path: &[DispatchNodeId],
     ) -> DispatchResult {
         input.push(keystroke.clone());
         let (bindings, pending, context_stack) = self.bindings_for_input(&input, dispatch_path);
@@ -510,7 +510,7 @@ impl DispatchTree {
     pub fn flush_dispatch(
         &mut self,
         input: SmallVec<[Keystroke; 1]>,
-        dispatch_path: &SmallVec<[DispatchNodeId; 32]>,
+        dispatch_path: &[DispatchNodeId],
     ) -> SmallVec<[Replay; 1]> {
         let (suffix, mut to_replay) = self.replay_prefix(input, dispatch_path);
 
@@ -525,7 +525,7 @@ impl DispatchTree {
     fn replay_prefix(
         &self,
         mut input: SmallVec<[Keystroke; 1]>,
-        dispatch_path: &SmallVec<[DispatchNodeId; 32]>,
+        dispatch_path: &[DispatchNodeId],
     ) -> (SmallVec<[Keystroke; 1]>, SmallVec<[Replay; 1]>) {
         let mut to_replay: SmallVec<[Replay; 1]> = Default::default();
         for last in (0..input.len()).rev() {
