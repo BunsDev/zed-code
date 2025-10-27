@@ -63,6 +63,8 @@ pub struct ProjectDiff {
     project: Entity<Project>,
     multibuffer: Entity<MultiBuffer>,
     branch_diff: Entity<branch_diff::BranchDiff>,
+    // split -> plain -> split
+    // either an Entity<Editor> (for the normal view) or an Entity<SplitEditor> (for the split view)
     editor: Entity<Editor>,
     buffer_diff_subscriptions: HashMap<Arc<RelPath>, (Entity<BufferDiff>, Subscription)>,
     workspace: WeakEntity<Workspace>,

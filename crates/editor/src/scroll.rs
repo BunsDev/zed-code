@@ -12,7 +12,7 @@ use crate::{
 };
 pub use autoscroll::{Autoscroll, AutoscrollStrategy};
 use core::fmt::Debug;
-use gpui::{Along, App, Axis, Context, Pixels, Task, Window, point, px};
+use gpui::{Along, App, AppContext, Axis, Context, Pixels, Task, Window, point, px};
 use language::language_settings::{AllLanguageSettings, SoftWrap};
 use language::{Bias, Point};
 pub use scroll_amount::ScrollAmount;
@@ -148,7 +148,20 @@ impl ActiveScrollbarState {
     }
 }
 
+
+
+struct HorizontalScrollManager {
+}
+
+struct VerticalScrollManager {
+}
+
 pub struct ScrollManager {
+    horizontal: HorizontalScrollManager,
+    
+    vertical: Entity<VerticalScrollManager>,
+    
+    // fields all relating to vertical scroll
     pub(crate) vertical_scroll_margin: ScrollOffset,
     anchor: ScrollAnchor,
     ongoing: OngoingScroll,
@@ -322,7 +335,7 @@ impl ScrollManager {
         WasScrolled(true)
     }
 
-    pub fn show_scrollbars(&mut self, window: &mut Window, cx: &mut Context<Editor>) {
+    pub fn show_scrollbars(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.show_scrollbars {
             self.show_scrollbars = true;
             cx.notify();
@@ -370,7 +383,7 @@ impl ScrollManager {
             .is_some_and(|scrollbar| scrollbar.thumb_state == ScrollbarThumbState::Dragging)
     }
 
-    pub fn set_hovered_scroll_thumb_axis(&mut self, axis: Axis, cx: &mut Context<Editor>) {
+    pub fn set_hovered_scroll_thumb_axis(&mut self, axis: Axis, cx: &mut Context<Self>) {
         self.update_active_scrollbar_state(
             Some(ActiveScrollbarState::new(
                 axis,
@@ -380,7 +393,7 @@ impl ScrollManager {
         );
     }
 
-    pub fn set_dragged_scroll_thumb_axis(&mut self, axis: Axis, cx: &mut Context<Editor>) {
+    pub fn set_dragged_scroll_thumb_axis(&mut self, axis: Axis, cx: &mut Context<Self>) {
         self.update_active_scrollbar_state(
             Some(ActiveScrollbarState::new(
                 axis,
@@ -390,14 +403,14 @@ impl ScrollManager {
         );
     }
 
-    pub fn reset_scrollbar_state(&mut self, cx: &mut Context<Editor>) {
+    pub fn reset_scrollbar_state(&mut self, cx: &mut Context<Self>) {
         self.update_active_scrollbar_state(None, cx);
     }
 
     fn update_active_scrollbar_state(
         &mut self,
         new_state: Option<ActiveScrollbarState>,
-        cx: &mut Context<Editor>,
+        cx: &mut Context<Self>,
     ) {
         if self.active_scrollbar != new_state {
             self.active_scrollbar = new_state;
@@ -405,7 +418,7 @@ impl ScrollManager {
         }
     }
 
-    pub fn set_is_hovering_minimap_thumb(&mut self, hovered: bool, cx: &mut Context<Editor>) {
+    pub fn set_is_hovering_minimap_thumb(&mut self, hovered: bool, cx: &mut Context<Self>) {
         self.update_minimap_thumb_state(
             Some(if hovered {
                 ScrollbarThumbState::Hovered
@@ -416,11 +429,11 @@ impl ScrollManager {
         );
     }
 
-    pub fn set_is_dragging_minimap(&mut self, cx: &mut Context<Editor>) {
+    pub fn set_is_dragging_minimap(&mut self, cx: &mut Context<Self>) {
         self.update_minimap_thumb_state(Some(ScrollbarThumbState::Dragging), cx);
     }
 
-    pub fn hide_minimap_thumb(&mut self, cx: &mut Context<Editor>) {
+    pub fn hide_minimap_thumb(&mut self, cx: &mut Context<Self>) {
         self.update_minimap_thumb_state(None, cx);
     }
 
@@ -432,7 +445,7 @@ impl ScrollManager {
     fn update_minimap_thumb_state(
         &mut self,
         thumb_state: Option<ScrollbarThumbState>,
-        cx: &mut Context<Editor>,
+        cx: &mut Context<Self>,
     ) {
         if self.minimap_thumb_state != thumb_state {
             self.minimap_thumb_state = thumb_state;
@@ -463,26 +476,28 @@ impl ScrollManager {
 }
 
 impl Editor {
-    pub fn vertical_scroll_margin(&self) -> usize {
-        self.scroll_manager.vertical_scroll_margin as usize
+    pub fn vertical_scroll_margin(&self, cx: &App) -> usize {
+        self.scroll_manager.read(cx).vertical_scroll_margin as usize
     }
 
     pub fn set_vertical_scroll_margin(&mut self, margin_rows: usize, cx: &mut Context<Self>) {
-        self.scroll_manager.vertical_scroll_margin = margin_rows as f64;
-        cx.notify();
+        self.scroll_manager.update(cx, |scroll_manager, cx| {
+            scroll_manager.vertical_scroll_margin = margin_rows as f64;
+            cx.notify();
+        });
     }
 
-    pub fn visible_line_count(&self) -> Option<f64> {
-        self.scroll_manager.visible_line_count
+    pub fn visible_line_count(&self, cx: &App) -> Option<f64> {
+        self.scroll_manager.read(cx).visible_line_count
     }
 
-    pub fn visible_row_count(&self) -> Option<u32> {
-        self.visible_line_count()
+    pub fn visible_row_count(&self, cx: &App) -> Option<u32> {
+        self.visible_line_count(cx)
             .map(|line_count| line_count as u32 - 1)
     }
 
-    pub fn visible_column_count(&self) -> Option<f64> {
-        self.scroll_manager.visible_column_count
+    pub fn visible_column_count(&self, cx: &App) -> Option<f64> {
+        self.scroll_manager.read(cx).visible_column_count
     }
 
     pub(crate) fn set_visible_line_count(
@@ -491,8 +506,10 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let opened_first_time = self.scroll_manager.visible_line_count.is_none();
-        self.scroll_manager.visible_line_count = Some(lines);
+        let opened_first_time = self.scroll_manager.read(cx).visible_line_count.is_none();
+        self.scroll_manager.update(cx, |scroll_manager, cx| {
+            scroll_manager.visible_line_count = Some(lines)
+        });
         if opened_first_time {
             self.post_scroll_update = cx.spawn_in(window, async move |editor, cx| {
                 editor
@@ -506,8 +523,10 @@ impl Editor {
         }
     }
 
-    pub(crate) fn set_visible_column_count(&mut self, columns: f64) {
-        self.scroll_manager.visible_column_count = Some(columns);
+    pub(crate) fn set_visible_column_count(&mut self, columns: f64, cx: &mut App) {
+        self.scroll_manager.update(cx, |scroll_manager, _| {
+            scroll_manager.visible_column_count = Some(columns)
+        });
     }
 
     pub fn apply_scroll_delta(
@@ -517,12 +536,16 @@ impl Editor {
         cx: &mut Context<Self>,
     ) {
         let mut delta = scroll_delta;
-        if self.scroll_manager.forbid_vertical_scroll {
+        if self.scroll_manager.read(cx).forbid_vertical_scroll {
             delta.y = 0.0;
         }
         let display_map = self.display_map.update(cx, |map, cx| map.snapshot(cx));
-        let position =
-            self.scroll_manager.anchor.scroll_position(&display_map) + delta.map(f64::from);
+        let position = self
+            .scroll_manager
+            .read(cx)
+            .anchor
+            .scroll_position(&display_map)
+            + delta.map(f64::from);
         self.set_scroll_position_taking_display_map(position, true, false, display_map, window, cx);
     }
 
@@ -596,22 +619,28 @@ impl Editor {
         self.edit_prediction_preview
             .set_previous_scroll_position(None);
 
-        let adjusted_position = if self.scroll_manager.forbid_vertical_scroll {
-            let current_position = self.scroll_manager.anchor.scroll_position(&display_map);
+        let adjusted_position = if self.scroll_manager.read(cx).forbid_vertical_scroll {
+            let current_position = self
+                .scroll_manager
+                .read(cx)
+                .anchor
+                .scroll_position(&display_map);
             gpui::Point::new(scroll_position.x, current_position.y)
         } else {
             scroll_position
         };
 
-        let editor_was_scrolled = self.scroll_manager.set_scroll_position(
-            adjusted_position,
-            &display_map,
-            local,
-            autoscroll,
-            workspace_id,
-            window,
-            cx,
-        );
+        let editor_was_scrolled = self.scroll_manager.update(cx, |scroll_manager, cx| {
+            scroll_manager.set_scroll_position(
+                adjusted_position,
+                &display_map,
+                local,
+                autoscroll,
+                workspace_id,
+                window,
+                cx,
+            )
+        });
 
         self.post_scroll_update = cx.spawn_in(window, async move |editor, cx| {
             cx.background_executor()
@@ -698,10 +727,10 @@ impl Editor {
         }
 
         let mut current_position = self.scroll_position(cx);
-        let Some(visible_line_count) = self.visible_line_count() else {
+        let Some(visible_line_count) = self.visible_line_count(cx) else {
             return;
         };
-        let Some(mut visible_column_count) = self.visible_column_count() else {
+        let Some(mut visible_column_count) = self.visible_column_count(cx) else {
             return;
         };
 
@@ -762,7 +791,7 @@ impl Editor {
         }
 
         if let (Some(visible_lines), Some(visible_columns)) =
-            (self.visible_line_count(), self.visible_column_count())
+            (self.visible_line_count(cx), self.visible_column_count(cx))
             && newest_head.row() <= DisplayRow(screen_top.row().0 + visible_lines as u32)
             && newest_head.column() <= screen_top.column() + visible_columns as u32
         {

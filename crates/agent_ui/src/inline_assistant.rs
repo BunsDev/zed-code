@@ -736,7 +736,7 @@ impl InlineAssistant {
             .editor
             .update(cx, |editor, cx| {
                 let scroll_top = editor.scroll_position(cx).y;
-                let scroll_bottom = scroll_top + editor.visible_line_count().unwrap_or(0.);
+                let scroll_bottom = scroll_top + editor.visible_line_count(cx).unwrap_or(0.);
                 editor_assists.scroll_lock = editor
                     .row_for_block(decorations.prompt_block_id, cx)
                     .map(|row| row.as_f64())
@@ -1216,10 +1216,10 @@ impl InlineAssistant {
             let mut scroll_target_top = scroll_target_range.0;
             let mut scroll_target_bottom = scroll_target_range.1;
 
-            scroll_target_top -= editor.vertical_scroll_margin() as ScrollOffset;
-            scroll_target_bottom += editor.vertical_scroll_margin() as ScrollOffset;
+            scroll_target_top -= editor.vertical_scroll_margin(cx) as ScrollOffset;
+            scroll_target_bottom += editor.vertical_scroll_margin(cx) as ScrollOffset;
 
-            let height_in_lines = editor.visible_line_count().unwrap_or(0.);
+            let height_in_lines = editor.visible_line_count(cx).unwrap_or(0.);
             let scroll_top = editor.scroll_position(cx).y;
             let scroll_bottom = scroll_top + height_in_lines;
 

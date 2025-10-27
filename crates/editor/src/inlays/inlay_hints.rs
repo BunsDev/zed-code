@@ -2078,7 +2078,7 @@ pub mod tests {
         let visible_range_after_scrolls = editor_visible_range(&editor, cx);
         let visible_line_count = editor
             .update(cx, |editor, _window, _| {
-                editor.visible_line_count().unwrap()
+                editor.visible_line_count(cx).unwrap()
             })
             .unwrap();
         let selection_in_cached_range = editor

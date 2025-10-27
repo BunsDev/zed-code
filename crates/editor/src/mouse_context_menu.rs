@@ -57,7 +57,7 @@ impl MouseContextMenu {
                 x: editor.gutter_dimensions.width,
                 y: Pixels::ZERO,
             };
-        let source_position = editor.to_pixel_point(source, &editor_snapshot, window)?;
+        let source_position = editor.to_pixel_point(source, &editor_snapshot, window, cx)?;
         let menu_position = MenuPosition::PinnedToEditor {
             source,
             offset: position - (source_position + content_origin),
@@ -277,7 +277,7 @@ pub fn deploy_context_menu(
             cx,
         ),
         None => {
-            let character_size = editor.character_dimensions(window);
+            let character_size = editor.character_dimensions(window, cx);
             let menu_position = MenuPosition::PinnedToEditor {
                 source: source_anchor,
                 offset: gpui::point(character_size.em_width, character_size.line_height),

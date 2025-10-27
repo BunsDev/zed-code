@@ -209,7 +209,7 @@ impl FollowableItem for Editor {
             return None;
         }
 
-        let scroll_anchor = self.scroll_manager.anchor();
+        let scroll_anchor = self.scroll_manager.anchor(cx);
         let excerpts = buffer
             .read(cx)
             .excerpts()

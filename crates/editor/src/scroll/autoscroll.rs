@@ -243,7 +243,7 @@ impl Editor {
                 self.set_scroll_position_internal(scroll_position, local, true, window, cx)
             }
             AutoscrollStrategy::Focused => {
-                let margin = margin.min(self.scroll_manager.vertical_scroll_margin);
+                let margin = margin.min(self.scroll_manager.read(cx).vertical_scroll_margin);
                 scroll_position.y = (target_top - margin).max(0.0);
                 self.set_scroll_position_internal(scroll_position, local, true, window, cx)
             }
@@ -357,7 +357,9 @@ impl Editor {
     }
 
     pub fn request_autoscroll(&mut self, autoscroll: Autoscroll, cx: &mut Context<Self>) {
-        self.scroll_manager.autoscroll_request = Some((autoscroll, true));
+        self.scroll_manager.update(cx, |scroll_manager, cx| {
+            scroll_manager.autoscroll_request = Some((autoscroll, true));
+        });
         cx.notify();
     }
 
@@ -366,7 +368,9 @@ impl Editor {
         autoscroll: Autoscroll,
         cx: &mut Context<Self>,
     ) {
-        self.scroll_manager.autoscroll_request = Some((autoscroll, false));
+        self.scroll_manager.update(cx, |scroll_manager, cx| {
+            scroll_manager.autoscroll_request = Some((autoscroll, false));
+        });
         cx.notify();
     }
 }
