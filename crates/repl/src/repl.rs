@@ -30,7 +30,7 @@ pub use crate::session::Session;
 pub const KERNEL_DOCS_URL: &str = "https://zed.dev/docs/repl#changing-kernels";
 
 pub fn init(fs: Arc<dyn Fs>, cx: &mut App) {
-    set_dispatcher(zed_dispatcher(cx));
+    // set_dispatcher(zed_dispatcher(cx));
     JupyterSettings::register(cx);
     ::editor::init_settings(cx);
     ReplSettings::register(cx);
@@ -38,26 +38,26 @@ pub fn init(fs: Arc<dyn Fs>, cx: &mut App) {
     ReplStore::init(fs, cx);
 }
 
-fn zed_dispatcher(cx: &mut App) -> impl Dispatcher {
-    struct ZedDispatcher {
-        dispatcher: Arc<dyn PlatformDispatcher>,
-    }
+// fn zed_dispatcher(cx: &mut App) -> impl Dispatcher {
+//     struct ZedDispatcher {
+//         dispatcher: Arc<dyn PlatformDispatcher>,
+//     }
 
-    // PlatformDispatcher is _super_ close to the same interface we put in
-    // async-dispatcher, except for the task label in dispatch. Later we should
-    // just make that consistent so we have this dispatcher ready to go for
-    // other crates in Zed.
-    impl Dispatcher for ZedDispatcher {
-        fn dispatch(&self, runnable: Runnable) {
-            self.dispatcher.dispatch(runnable, None)
-        }
+//     // PlatformDispatcher is _super_ close to the same interface we put in
+//     // async-dispatcher, except for the task label in dispatch. Later we should
+//     // just make that consistent so we have this dispatcher ready to go for
+//     // other crates in Zed.
+//     impl Dispatcher for ZedDispatcher {
+//         fn dispatch(&self, runnable: Runnable) {
+//             self.dispatcher.dispatch(runnable, None)
+//         }
 
-        fn dispatch_after(&self, duration: Duration, runnable: Runnable) {
-            self.dispatcher.dispatch_after(duration, runnable);
-        }
-    }
+//         fn dispatch_after(&self, duration: Duration, runnable: Runnable) {
+//             self.dispatcher.dispatch_after(duration, runnable);
+//         }
+//     }
 
-    ZedDispatcher {
-        dispatcher: cx.background_executor().dispatcher.clone(),
-    }
-}
+//     ZedDispatcher {
+//         dispatcher: cx.background_executor().dispatcher.clone(),
+//     }
+// }

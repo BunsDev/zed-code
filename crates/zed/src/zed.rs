@@ -29,10 +29,11 @@ use git_ui::commit_view::CommitViewToolbar;
 use git_ui::git_panel::GitPanel;
 use git_ui::project_diff::ProjectDiffToolbar;
 use gpui::{
-    Action, App, AppContext as _, Context, DismissEvent, Element, Entity, Focusable, KeyBinding,
-    ParentElement, PathPromptOptions, PromptLevel, ReadGlobal, SharedString, Styled, Task,
-    TitlebarOptions, UpdateGlobal, Window, WindowKind, WindowOptions, actions, image_cache, point,
-    px, retain_all,
+    Action, App, AppContext as _, AsyncApp, Context, DismissEvent, Element, Entity, EventEmitter,
+    FRAME_RING, FocusHandle, Focusable, FrameTimings, Hsla, KeyBinding, MouseButton, ParentElement,
+    PathPromptOptions, PromptLevel, ReadGlobal, SharedString, Styled, Task, TitlebarOptions,
+    UpdateGlobal, Window, WindowKind, WindowOptions, actions, get_all_timings, get_frame_timings,
+    hsla, image_cache, point, px, retain_all, rgb, rgba,
 };
 use image_viewer::ImageInfo;
 use language::Capability;
@@ -72,12 +73,13 @@ use std::{
 };
 use terminal_view::terminal_panel::{self, TerminalPanel};
 use theme::{ActiveTheme, GlobalTheme, SystemAppearance, ThemeRegistry, ThemeSettings};
-use ui::{PopoverMenuHandle, prelude::*};
+use ui::{PopoverMenuHandle, Tooltip, prelude::*};
 use util::markdown::MarkdownString;
 use util::rel_path::RelPath;
 use util::{ResultExt, asset_str};
 use uuid::Uuid;
 use vim_mode_setting::VimModeSetting;
+use workspace::dock::PanelEvent;
 use workspace::notifications::{
     NotificationId, SuppressEvent, dismiss_app_notification, show_app_notification,
 };
@@ -87,7 +89,7 @@ use workspace::{
     open_new,
 };
 use workspace::{
-    CloseIntent, CloseWindow, NotificationFrame, RestoreBanner, with_active_or_new_workspace,
+    CloseIntent, CloseWindow, NotificationFrame, Panel, RestoreBanner, with_active_or_new_workspace,
 };
 use workspace::{Pane, notifications::DetachAndPromptErr};
 use zed_actions::{
@@ -568,6 +570,327 @@ fn show_software_emulation_warning_if_needed(
     }
 }
 
+actions!(timings, [ToggleFocus,]);
+
+enum DataMode {
+    Realtime(Option<FrameTimings>),
+    Capture {
+        selected_index: usize,
+        data: Vec<FrameTimings>,
+    },
+}
+
+struct TimingsPanel {
+    position: workspace::dock::DockPosition,
+    focus_handle: FocusHandle,
+    data: DataMode,
+    width: Option<Pixels>,
+    _refresh: Option<Task<()>>,
+}
+
+impl TimingsPanel {
+    fn new(cx: &mut App) -> Entity<Self> {
+        let entity = cx.new(|cx| Self {
+            position: workspace::dock::DockPosition::Right,
+            focus_handle: cx.focus_handle(),
+            data: DataMode::Realtime(None),
+            width: None,
+            _refresh: Some(Self::begin_listen(cx)),
+        });
+
+        entity
+    }
+
+    fn begin_listen(cx: &mut Context<Self>) -> Task<()> {
+        cx.spawn(async move |this, cx| {
+            loop {
+                let data = get_frame_timings();
+
+                this.update(cx, |this: &mut TimingsPanel, cx| {
+                    this.data = DataMode::Realtime(Some(data));
+                    cx.notify();
+                });
+
+                cx.background_executor()
+                    .timer(Duration::from_micros(1))
+                    .await;
+            }
+        })
+    }
+
+    fn get_timings(&self) -> Option<&FrameTimings> {
+        match &self.data {
+            DataMode::Realtime(data) => data.as_ref(),
+            DataMode::Capture {
+                data,
+                selected_index,
+            } => Some(&data[*selected_index]),
+        }
+    }
+
+    fn render_bar(&self, max_value: f32, item: BarChartItem, cx: &App) -> impl IntoElement {
+        let fill_width = (item.value / max_value).max(0.02); // Minimum 2% width for visibility
+        let label = format!(
+            "{}:{}:{}",
+            item.location
+                .file()
+                .rsplit_once("/")
+                .unwrap_or(("", item.location.file()))
+                .1
+                .rsplit_once("\\")
+                .unwrap_or(("", item.location.file()))
+                .1,
+            item.location.line(),
+            item.location.column()
+        );
+
+        h_flex()
+            .gap_2()
+            .w_full()
+            .h(px(32.0)) // Slightly taller for better visibility
+            .child(
+                // Label with flexible width and truncation
+                div()
+                    .min_w(px(80.0))
+                    .max_w(px(200.0)) // Maximum width for labels
+                    .flex_shrink_0()
+                    .overflow_hidden()
+                    .child(div().text_ellipsis().child(label)),
+            )
+            .child(
+                // Bar container
+                div()
+                    .flex_1()
+                    .h(px(24.0))
+                    .bg(cx.theme().colors().background)
+                    .rounded_md()
+                    .p(px(2.0))
+                    .child(
+                        // Bar fill with minimum width
+                        div()
+                            .h_full()
+                            .rounded_sm()
+                            .bg(item.color)
+                            .min_w(px(4.0)) // Minimum width so tiny values are still visible
+                            .w(relative(fill_width)),
+                    ),
+            )
+            .child(
+                // Value label - right-aligned
+                div()
+                    .min_w(px(60.0))
+                    .flex_shrink_0()
+                    .text_right()
+                    .child(format!("{:.1}", fill_width)),
+            )
+    }
+}
+
+#[derive(IntoElement)]
+struct DiscreteSlider {
+    value: usize,
+    count: usize,
+    on_change: Arc<dyn Fn(usize, &mut Window, &mut App)>,
+}
+
+impl DiscreteSlider {
+    pub fn new(
+        value: usize,
+        count: usize,
+        on_change: impl Fn(usize, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        Self {
+            value: value.min(count - 1),
+            count,
+            on_change: Arc::new(on_change),
+        }
+    }
+}
+
+impl RenderOnce for DiscreteSlider {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        h_flex()
+            .id("discrete-slider")
+            .overflow_scroll()
+            .w_full()
+            .p_2()
+            .children((0..self.count).map(|i| {
+                let is_active = i == self.value;
+                let on_change = self.on_change.clone();
+
+                div()
+                    .w(px(24.0))
+                    .h(px(24.0))
+                    .rounded_md()
+                    .cursor_pointer()
+                    .bg(if is_active {
+                        cx.theme().accents().color_for_index(i as u32)
+                    } else {
+                        cx.theme().colors().element_background
+                    })
+                    .hover(|this| this.bg(cx.theme().colors().element_hover))
+                    .on_mouse_down(MouseButton::Left, {
+                        let on_change = Arc::clone(&on_change);
+                        move |_, window, cx| {
+                            on_change(i, window, cx);
+                        }
+                    })
+                    // This handles drag selection
+                    .on_mouse_move({
+                        move |event, window, cx| {
+                            // If mouse button is held down
+                            if event.pressed_button == Some(MouseButton::Left) {
+                                on_change(i, window, cx);
+                            }
+                        }
+                    })
+            }))
+    }
+}
+
+struct BarChartItem {
+    location: &'static core::panic::Location<'static>,
+    value: f32,
+    color: Hsla,
+}
+
+impl Panel for TimingsPanel {
+    fn persistent_name() -> &'static str {
+        "Timings"
+    }
+
+    fn panel_key() -> &'static str {
+        "timings-panel"
+    }
+
+    fn position(&self, window: &Window, cx: &App) -> workspace::dock::DockPosition {
+        self.position
+    }
+
+    fn position_is_valid(&self, position: workspace::dock::DockPosition) -> bool {
+        true
+    }
+
+    fn set_position(
+        &mut self,
+        position: workspace::dock::DockPosition,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.position = position;
+        cx.notify();
+    }
+
+    fn size(&self, window: &Window, cx: &App) -> Pixels {
+        self.width.unwrap_or(px(200.0))
+    }
+
+    fn set_size(&mut self, size: Option<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
+        self.width = size;
+        cx.notify();
+    }
+
+    fn icon(&self, window: &Window, cx: &App) -> Option<ui::IconName> {
+        Some(ui::IconName::Envelope)
+    }
+
+    fn icon_tooltip(&self, window: &Window, cx: &App) -> Option<&'static str> {
+        Some("Timings Panel")
+    }
+
+    fn toggle_action(&self) -> Box<dyn Action> {
+        Box::new(ToggleFocus)
+    }
+
+    fn activation_priority(&self) -> u32 {
+        2
+    }
+}
+
+impl Render for TimingsPanel {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        v_flex()
+            .w_full()
+            .gap_2()
+            .child(
+                Button::new(
+                    "switch-mode",
+                    match self.data {
+                        DataMode::Capture { .. } => "Realtime",
+                        DataMode::Realtime(_) => "Capture",
+                    },
+                )
+                .style(ButtonStyle::Filled)
+                .on_click(cx.listener(|this, _, window, cx| {
+                    match this.data {
+                        DataMode::Realtime(_) => {
+                            let (data, selected_index) = get_all_timings();
+                            this._refresh = None;
+                            this.data = DataMode::Capture {
+                                selected_index,
+                                data,
+                            };
+                        }
+                        DataMode::Capture { .. } => {
+                            this._refresh = Some(Self::begin_listen(cx));
+                            this.data = DataMode::Realtime(None);
+                        }
+                    };
+                    cx.notify();
+                })),
+            )
+            .when(matches!(self.data, DataMode::Capture { .. }), |this| {
+                let DataMode::Capture {
+                    selected_index,
+                    data,
+                } = &self.data
+                else {
+                    unreachable!();
+                };
+
+                let entity = cx.entity().downgrade();
+                this.child(DiscreteSlider::new(
+                    *selected_index,
+                    data.len(),
+                    move |value, _window, cx| {
+                        if let Some(entity) = entity.upgrade() {
+                            entity.update(cx, |this, cx| {
+                                if let DataMode::Capture { selected_index, .. } = &mut this.data {
+                                    *selected_index = value;
+                                    cx.notify();
+                                }
+                            });
+                        }
+                    },
+                ))
+            })
+            .when_some(self.get_timings(), |div, e| {
+                div.child(format!("{}", e.frame_time))
+                    .children(e.timings.iter().enumerate().map(|(i, (name, value))| {
+                        self.render_bar(
+                            e.frame_time as f32,
+                            BarChartItem {
+                                location: name,
+                                value: *value as f32,
+                                color: cx.theme().accents().color_for_index(i as u32),
+                            },
+                            cx,
+                        )
+                    }))
+            })
+    }
+}
+
+impl Focusable for TimingsPanel {
+    fn focus_handle(&self, cx: &App) -> FocusHandle {
+        self.focus_handle.clone()
+    }
+}
+
+impl EventEmitter<workspace::Event> for TimingsPanel {}
+
+impl EventEmitter<PanelEvent> for TimingsPanel {}
+
 fn initialize_panels(
     prompt_builder: Arc<PromptBuilder>,
     window: &mut Window,
@@ -585,6 +908,15 @@ fn initialize_panels(
             cx.clone(),
         );
         let debug_panel = DebugPanel::load(workspace_handle.clone(), cx);
+        let timings_panel = workspace_handle
+            .update_in(cx, |workspace, window, cx| TimingsPanel::new(cx))
+            .unwrap();
+
+        workspace_handle.update_in(cx, |workspace, window, cx| {
+            workspace.register_action(|workspace, _: &ToggleFocus, window, cx| {
+                workspace.toggle_panel_focus::<TimingsPanel>(window, cx);
+            });
+        });
 
         let (
             project_panel,
@@ -612,6 +944,7 @@ fn initialize_panels(
             workspace.add_panel(channels_panel, window, cx);
             workspace.add_panel(notification_panel, window, cx);
             workspace.add_panel(debug_panel, window, cx);
+            workspace.add_panel(timings_panel, window, cx);
         })?;
 
         fn setup_or_teardown_agent_panel(

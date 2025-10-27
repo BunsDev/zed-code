@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{rc::Rc, time::Instant};
 
 use ::util::ResultExt;
 use anyhow::Context as _;
@@ -240,9 +240,7 @@ impl WindowsWindowInner {
 
     fn handle_timer_msg(&self, handle: HWND, wparam: WPARAM) -> Option<isize> {
         if wparam.0 == SIZE_MOVE_LOOP_TIMER_ID {
-            for runnable in self.main_receiver.drain() {
-                runnable.run();
-            }
+            drain_main_receiver(&self.main_receiver);
             self.handle_paint_msg(handle)
         } else {
             None
@@ -1194,13 +1192,28 @@ impl WindowsWindowInner {
 
     #[inline]
     fn draw_window(&self, handle: HWND, force_render: bool) -> Option<isize> {
+        let cur_frame = FRAME_INDEX
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            .overflowing_add(1)
+            .0
+            % FRAME_RING;
+
+        FRAME_BUF[cur_frame].lock().timings.clear();
+
         let mut request_frame = self.state.borrow_mut().callbacks.request_frame.take()?;
+        let start = Instant::now();
         request_frame(RequestFrameOptions {
             require_presentation: false,
             force_render,
         });
+        let end = Instant::now();
+        let duration = end.duration_since(start).as_secs_f64();
+
         self.state.borrow_mut().callbacks.request_frame = Some(request_frame);
         unsafe { ValidateRect(Some(handle), None).ok().log_err() };
+
+        FRAME_BUF[cur_frame].lock().frame_time = duration;
+
         Some(0)
     }
 

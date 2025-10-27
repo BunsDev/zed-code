@@ -556,14 +556,21 @@ pub(crate) trait PlatformWindow: HasWindowHandle + HasDisplayHandle {
     }
 }
 
+/// Bungus
+#[derive(Debug)]
+pub struct Bigus {
+    /// Bungys 2
+    pub location: &'static core::panic::Location<'static>,
+}
+
 /// This type is public so that our test macro can generate and use it, but it should not
 /// be considered part of our public API.
 #[doc(hidden)]
 pub trait PlatformDispatcher: Send + Sync {
     fn is_main_thread(&self) -> bool;
-    fn dispatch(&self, runnable: Runnable, label: Option<TaskLabel>);
-    fn dispatch_on_main_thread(&self, runnable: Runnable);
-    fn dispatch_after(&self, duration: Duration, runnable: Runnable);
+    fn dispatch(&self, runnable: Runnable<Bigus>, label: Option<TaskLabel>);
+    fn dispatch_on_main_thread(&self, runnable: Runnable<Bigus>);
+    fn dispatch_after(&self, duration: Duration, runnable: Runnable<Bigus>);
     fn now(&self) -> Instant {
         Instant::now()
     }

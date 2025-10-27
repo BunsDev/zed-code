@@ -72,7 +72,7 @@ pub(crate) struct WindowsWindowInner {
     pub(crate) executor: ForegroundExecutor,
     pub(crate) windows_version: WindowsVersion,
     pub(crate) validation_number: usize,
-    pub(crate) main_receiver: flume::Receiver<Runnable>,
+    pub(crate) main_receiver: flume::Receiver<Runnable<Bigus>>,
     pub(crate) platform_window_handle: HWND,
 }
 
@@ -351,7 +351,7 @@ struct WindowCreateContext {
     windows_version: WindowsVersion,
     drop_target_helper: IDropTargetHelper,
     validation_number: usize,
-    main_receiver: flume::Receiver<Runnable>,
+    main_receiver: flume::Receiver<Runnable<Bigus>>,
     platform_window_handle: HWND,
     appearance: WindowAppearance,
     disable_direct_composition: bool,

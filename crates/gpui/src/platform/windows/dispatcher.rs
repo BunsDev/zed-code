@@ -17,11 +17,11 @@ use windows::{
 };
 
 use crate::{
-    HWND, PlatformDispatcher, SafeHwnd, TaskLabel, WM_GPUI_TASK_DISPATCHED_ON_MAIN_THREAD,
+    Bigus, HWND, PlatformDispatcher, SafeHwnd, TaskLabel, WM_GPUI_TASK_DISPATCHED_ON_MAIN_THREAD,
 };
 
 pub(crate) struct WindowsDispatcher {
-    main_sender: Sender<Runnable>,
+    main_sender: Sender<Runnable<Bigus>>,
     main_thread_id: ThreadId,
     platform_window_handle: SafeHwnd,
     validation_number: usize,
@@ -29,7 +29,7 @@ pub(crate) struct WindowsDispatcher {
 
 impl WindowsDispatcher {
     pub(crate) fn new(
-        main_sender: Sender<Runnable>,
+        main_sender: Sender<Runnable<Bigus>>,
         platform_window_handle: HWND,
         validation_number: usize,
     ) -> Self {
@@ -44,7 +44,7 @@ impl WindowsDispatcher {
         }
     }
 
-    fn dispatch_on_threadpool(&self, runnable: Runnable) {
+    fn dispatch_on_threadpool(&self, runnable: Runnable<Bigus>) {
         let handler = {
             let mut task_wrapper = Some(runnable);
             WorkItemHandler::new(move |_| {
@@ -55,7 +55,7 @@ impl WindowsDispatcher {
         ThreadPool::RunWithPriorityAsync(&handler, WorkItemPriority::High).log_err();
     }
 
-    fn dispatch_on_threadpool_after(&self, runnable: Runnable, duration: Duration) {
+    fn dispatch_on_threadpool_after(&self, runnable: Runnable<Bigus>, duration: Duration) {
         let handler = {
             let mut task_wrapper = Some(runnable);
             TimerElapsedHandler::new(move |_| {
@@ -72,14 +72,14 @@ impl PlatformDispatcher for WindowsDispatcher {
         current().id() == self.main_thread_id
     }
 
-    fn dispatch(&self, runnable: Runnable, label: Option<TaskLabel>) {
+    fn dispatch(&self, runnable: Runnable<Bigus>, label: Option<TaskLabel>) {
         self.dispatch_on_threadpool(runnable);
         if let Some(label) = label {
             log::debug!("TaskLabel: {label:?}");
         }
     }
 
-    fn dispatch_on_main_thread(&self, runnable: Runnable) {
+    fn dispatch_on_main_thread(&self, runnable: Runnable<Bigus>) {
         match self.main_sender.send(runnable) {
             Ok(_) => unsafe {
                 PostMessageW(
@@ -104,7 +104,7 @@ impl PlatformDispatcher for WindowsDispatcher {
         }
     }
 
-    fn dispatch_after(&self, duration: Duration, runnable: Runnable) {
+    fn dispatch_after(&self, duration: Duration, runnable: Runnable<Bigus>) {
         self.dispatch_on_threadpool_after(runnable, duration);
     }
 }
