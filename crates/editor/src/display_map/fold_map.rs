@@ -114,9 +114,8 @@ impl FoldPoint {
         let overshoot = self.0 - cursor.start().1.output.lines;
         let mut offset = cursor.start().1.output.len;
         if !overshoot.is_zero() {
-            // todo! is this important?
-            // let transform = cursor.item().expect("display point out of range");
-            // assert!(transform.placeholder.is_none());
+            let transform = cursor.item().expect("display point out of range");
+            assert!(transform.placeholder.is_none());
             let end_inlay_offset = snapshot
                 .inlay_snapshot
                 .to_offset(InlayPoint(cursor.start().1.input.lines + overshoot));
@@ -521,17 +520,15 @@ impl FoldMap {
                         const ELLIPSIS: &str = "⋯";
 
                         let fold_id = fold.id;
-                        let text = " Untitled (1:10) ";
-                        let output = TextSummary::from(text);
                         new_transforms.push(
                             Transform {
                                 summary: TransformSummary {
-                                    output,
+                                    output: TextSummary::from(ELLIPSIS),
                                     input: inlay_snapshot
                                         .text_summary_for_range(fold_range.start..fold_range.end),
                                 },
                                 placeholder: Some(TransformPlaceholder {
-                                    text: text,
+                                    text: ELLIPSIS,
                                     chars: 1,
                                     renderer: ChunkRenderer {
                                         id: ChunkRendererId::Fold(fold.id),

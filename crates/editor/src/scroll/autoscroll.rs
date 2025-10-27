@@ -158,7 +158,7 @@ impl Editor {
                 .row()
                 .as_f64();
             target_bottom = display_map
-                .point_to_display_point2(selections.last().unwrap().head(), text::Bias::Left)
+                .point_to_display_point(selections.last().unwrap().head(), text::Bias::Left)
                 .row()
                 .next_row()
                 .as_f64();
