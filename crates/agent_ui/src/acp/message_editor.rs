@@ -599,24 +599,14 @@ impl MessageEditor {
             );
         }
 
-        self.editor.update(cx, |editor, cx| {
-            editor.request_autoscroll(editor::scroll::Autoscroll::fit(), cx);
-        });
-
-        cx.spawn(async |this, cx| {
-            // Wait 2 frames at 120 FPS.
-            cx.background_executor()
-                .timer(Duration::from_millis(16))
-                .await;
-
-            this.update(cx, |this, cx| {
-                this.editor.update(cx, |editor, cx| {
+        let editor = self.editor.clone();
+        cx.on_next_frame(window, move |_, window, cx| {
+            cx.on_next_frame(window, move |_, _, cx| {
+                editor.update(cx, |editor, cx| {
                     editor.request_autoscroll(editor::scroll::Autoscroll::fit(), cx);
                 });
-            })
-            .ok();
-        })
-        .detach();
+            });
+        });
     }
 
     fn confirm_mention_for_thread(
