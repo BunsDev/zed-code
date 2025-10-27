@@ -15,6 +15,7 @@ use editor::{
     MultiBuffer, ToOffset,
     actions::Paste,
     display_map::{Crease, CreaseId, FoldId},
+    scroll::Autoscroll,
 };
 use futures::{
     FutureExt as _,
@@ -592,6 +593,15 @@ impl MessageEditor {
                 ),
             );
         }
+
+        let editor = self.editor.clone();
+        cx.on_next_frame(window, move |_, window, cx| {
+            cx.on_next_frame(window, move |_, _, cx| {
+                editor.update(cx, |editor, cx| {
+                    editor.request_autoscroll(Autoscroll::fit(), cx)
+                });
+            });
+        });
     }
 
     fn confirm_mention_for_thread(
@@ -1034,6 +1044,7 @@ impl MessageEditor {
 
         self.editor.update(cx, |message_editor, cx| {
             message_editor.edit([(cursor_anchor..cursor_anchor, completion.new_text)], cx);
+            message_editor.request_autoscroll(Autoscroll::fit(), cx);
         });
         if let Some(confirm) = completion.confirm {
             confirm(CompletionIntent::Complete, window, cx);
